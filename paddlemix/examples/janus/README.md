@@ -1,8 +1,8 @@
-# Janus
+# Janus/JanusFlow
 
 ## 1. 模型介绍
 
-[Janus](https://llava-vl.github.io/blog/2024-08-05-llava-onevision/) 将视觉编码解耦到单独的路径中，同时仍然使用单个统一的转换器架构进行处理，解决了以前方法的局限性。解耦不仅缓解了视觉编码器在理解和生成中的角色冲突，还增强了框架的灵活性。
+[Janus/JanusFlow](https://github.com/deepseek-ai/Janus) 将视觉编码解耦到单独的路径中，同时仍然使用单个统一的转换器架构进行处理，解决了以前方法的局限性。解耦不仅缓解了视觉编码器在理解和生成中的角色冲突，还增强了框架的灵活性。
 
 
 **本仓库支持的模型权重:**
@@ -26,19 +26,26 @@
 
 ### 推理
 ```bash
-python paddlemix/examples/janus/run_text_generation_predict.py \
+# Janus understanding
+python paddlemix/examples/janus/run_understanding_inference.py \
     --model_path="deepseek-ai/Janus-1.3B" \
-    --image_file="/paddlemix/demo_images/llava_v1_5_radar.jpg"
+    --image_file="paddlemix/demo_images/examples_image1.jpg" \
+    --question="What is shown in this image?" \
 
-python paddlemix/examples/janus/run_img_generation_predict.py \
-    --model_path="deepseek-ai/Janus-1.3B"
-
-python paddlemix/examples/janus/run_interactivechat.py \
-    --model_path="deepseek-ai/Janus-1.3B"
-
-python run_janus_flow_predict.py \
-    --model_path="deepseek-ai/JanusFlow-1.3B" \
+# Janus generation
+python paddlemix/examples/janus/run_generation_inference.py \
+    --model_path="deepseek-ai/Janus-1.3B" \
     --prompt="A stunning princess from kabul in red, white traditional clothing, blue eyes, brown hair"
+
+# JanusFlow generation
+python paddlemix/examples/janus/run_generation_inference_janusflow.py \
+    --model_path="deepseek-ai/JanusFlow-1.3B" \
+    --inference_step=30 \
+    --prompt="A stunning princess from kabul in red, white traditional clothing, blue eyes, brown hair"
+
+# Janus interactivechat
+python paddlemix/examples/janus/run_interactivechat.py \
+    --model_path="deepseek-ai/Janus-1.3B" \
 
 ```
 
@@ -52,7 +59,7 @@ python run_janus_flow_predict.py \
 }
 
 @misc{ma2024janusflow,
-      title={JanusFlow: Harmonizing Autoregression and Rectified Flow for Unified Multimodal Understanding and Generation}, 
+      title={JanusFlow: Harmonizing Autoregression and Rectified Flow for Unified Multimodal Understanding and Generation},
       author={Yiyang Ma and Xingchao Liu and Xiaokang Chen and Wen Liu and Chengyue Wu and Zhiyu Wu and Zizheng Pan and Zhenda Xie and Haowei Zhang and Xingkai yu and Liang Zhao and Yisong Wang and Jiaying Liu and Chong Ruan},
       journal={arXiv preprint arXiv:2411.07975},
       year={2024}
