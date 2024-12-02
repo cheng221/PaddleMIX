@@ -1,4 +1,4 @@
-# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+# Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-model=llava
-model_item=llava-v1.6-vicuna-13b-pretrain
-bs_item=16
-fp_item=bf16O2
+model_item=stable_diffusion_3-dreambooth_ft
+model=stable_diffusion_3
+bs_item=1
+fp_item=fp16
 run_mode=DP
 device_num=N1C8
-max_epochs=3
+max_iter=1000
 num_workers=0
 
 # get data
 bash ./test_tipc/dygraph/dp/${model}/benchmark_common/prepare.sh
 # run
-bash ./test_tipc/dygraph/dp/${model}/benchmark_common/run_benchmark.sh ${model_item} ${bs_item} ${fp_item} ${run_mode} ${device_num} ${max_epochs} ${num_workers} 2>&1;
+bash ./test_tipc/dygraph/dp/${model}/benchmark_common/run_benchmark.sh ${model_item} ${bs_item} ${fp_item} ${run_mode} ${device_num} ${max_iter} ${num_workers} 2>&1;
