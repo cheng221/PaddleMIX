@@ -58,8 +58,16 @@ class Runner:
         self.running = False
         self.dataset = None
 
-    def set_abort(self) -> None:
-        self.aborted = True
+    def set_abort(self,data) -> None:
+        get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
+        lang = get("top.lang")
+
+        if self.running:
+            self.aborted = True
+            yield ALERTS["info_aborting"][lang], gr.Slider(visible=False)
+        else:
+            yield ALERTS["info_aborting_error"][lang],gr.Slider(visible=False)
+
 
     def _initialize(self, data: Dict["Component", Any], do_train: bool, from_preview: bool) -> str:
         get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
@@ -109,7 +117,6 @@ class Runner:
     def _parse_train_args(self, data: Dict["Component", Any]) -> Dict[str, Any]:
         get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
         model_name, finetuning_type = get("top.model_name"), get("top.finetuning_type")
-
         args = dict(
             stage=TRAINING_STAGES[get("train.training_stage")],
             do_train=True,
@@ -223,7 +230,18 @@ class Runner:
         return config_dict
 
     def run_train_v2(self, data):
+        # get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
         self.running_data = data
+        error = self._initialize(data, do_train=True, from_preview=True)
+        if error!="":
+            # lang = get("top.lang")
+            output_box = self.manager.get_elem_by_id("{}.output_box".format("train"))
+            progress_bar = self.manager.get_elem_by_id("{}.progress_bar".format("train"))
+            yield {
+                output_box: error,
+                progress_bar: gr.Slider(visible=False),
+            }
+            return  
         thread = Thread(target=self.run_train, args=(data,))
         thread.start()
         self.trainer = thread
@@ -358,12 +376,15 @@ class Runner:
 
                 yield return_dict
             if self.trainer.is_alive():
-                # yield {
-                #     output_box: ALERTS["info_training"][lang],
-                #     progress_bar: gr.Slider(visible=False),
-                # }
-                return []
+                yield {
+                    output_box: ALERTS["info_training"][lang],
+                }
+                time.sleep(5)
             else:
+                yield {
+                    output_box: ALERTS["info_aborting"][lang],
+                    progress_bar: gr.Slider(visible=False),
+                }
                 self.trainer = None
                 self.running = False
                 print("trainer exited")

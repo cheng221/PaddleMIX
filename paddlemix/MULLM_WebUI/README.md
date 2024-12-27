@@ -7,7 +7,8 @@ PaddleMIX MULLM_WebUI 是一个基于PaddleMIX套件的交互式平台，主要�
 #### 支持模型
 | Model |Model Size |Inference | SFT | LoRA |
 |-------|------------|-------|---|-----|
-| qwen2_vl|2B/7B| ✅     | ✅   | ✅   ||
+| qwen2_vl|2B/7B| ✅     | ✅   | ✅   |
+| PPDocBee-2B-1129|2B | ✅     | ✅   | ✅ |
 
 >* ✅: Supported
 >* 🚧: In Progress
