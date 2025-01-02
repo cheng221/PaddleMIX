@@ -5,7 +5,7 @@
 
 ## 1. 简介
 
-PP-DocBee 是一款专注于文档理解的多模态大模型，在中文文档理解任务上具有卓越表现。该模型基于```Qwen/Qwen2-VL-2BInstruct```架构，通过近 500 万条文档理解类多模态数据和精选的纯文本数据进行微调优化。
+PP-DocBee 是PaddleMIX团队自研的一款专注于文档理解的多模态大模型，在中文文档理解任务上具有卓越表现。该模型是基于Qwen2-VL-2B架构针对文档理解场景进行优化的，通过近 500 万条文档理解类多模态数据集进行微调优化，各种数据集包括了通用VQA类、OCR类、图表类、text-rich文档类、数学和复杂推理类、合成数据类、纯文本数据等，并设置了不同训练数据配比。在学术界权威的几个英文文档理解评测榜单上，PP-DocBee基本都达到了同参数量级别模型的SOTA。在内部业务中文场景类的指标上，PP-DocBee也高于目前的热门开源和闭源模型。
 
 **本仓库支持的模型权重:**
 
@@ -16,17 +16,17 @@ PP-DocBee 是一款专注于文档理解的多模态大模型，在中文文档�
 
 ## 2. 环境要求
 - **python >= 3.10**
-- **paddlepaddle-gpu 要求3.0.0b2或版本develop**
+- **paddlepaddle-gpu 要求>=3.0.0b2或版本develop**
+- **paddlenlp 要求>=3.0.0b2**
 ```
-# develop版安装示例
+# paddlepaddle-gpu develop版安装示例
 python -m pip install paddlepaddle-gpu==0.0.0.post118 -f https://www.paddlepaddle.org.cn/whl/linux/gpu/develop.html
-```
 
-- **paddlenlp == 3.0.0b3**
-```
-# 安装示例
+# paddlenlp 3.0.0b3安装示例（推荐）
 python -m pip install paddlenlp==3.0.0b3
 ```
+
+
 
 > 注：(默认开启flash_attn)使用flash_attn 要求A100/A800显卡或者H20显卡。V100请用float16推理。
 
@@ -147,35 +147,36 @@ python paddlemix/examples/ppdocbee/ppdocbee_infer.py \
 
 ## 5. 性能评测
 
-### 5.1 精度评测
+### 5.1 英文公开评估集指标
 
-Benchamrk         | Params  | DocVQA-val | ChartQA-test | InfoVQA-val | TextVQA-val | OCRBench | ChineseOCRBench | **内部中文场景评估集**
------------------ | ------- | ---------- | ------------ | ----------- | ----------- | -------- | --------------- | -------------------
-GPT-4V           |Closed Model| 87.2(test) | 78.1         |   75.1(test)|  78.0       | 64.5     |   -             |  -
-GPT-4o           |Closed Model| 92.8(test) | 85.7         |   79.2(test)|  77.4       | 73.6     |   -             |  -
-Claude 3.5 Sonnet|Closed Model| 95.2(test) | 90.8         |   74.1(test)|  74.1       | 78.8     |   -             |  -
-Gemini-1.5-Pro   |Closed Model| 93.1(test) | 87.2         |   80/1(test)|  78.7       | 75.4     |   -             |  -
-MiniCPM-V 2.0     | 2.43B   | 71.9(test) | -            |       -     |  74.1       | 60.5     |   -             |  -
-SmolVLM           | 2.25B   | 81.6(test) | -            |       -     |  72.7       | -        |   -             |  -
-Aquila-VL-2B      | 2.18B   | 85.0(test) | 76.5         | 58.3(test)  |  76.4       |  77.2    |  -              | -
-Mini-Monkey-2B    | 2.21B   | 87.4(test) | 76.5         | 60.1(test)  |  76.0       |  79.4    |  -              | -
-InternVL2-2B      | 2.21B   | 86.9(test) | 76.2         | 58.9(test)  |   73.4      |  78.1    | -               |    44.1
-InternVL2.5-2B    | 2.21B   | 88.7(test) |  79.2        |  60.9(test) | 74.3        | 80.4     |  -              | -
-DeepSeek-VL2-Tiny | *1.0B   | 88.9(test) |  **81.0**    |  66.1(test) | 80.7        | 80.9     | -               | -
-Qwen2-VL-2B       | 2.21B   | 89.2       |  73.5        |  64.1       | 79.7        | 79.4     | 76.1             |  52.8
-**PPDocBee-2B-1129**| 2.21B   | **90.1**   |  74.6        |  **65.4**   |   **81.2**  | **82.8** | **80.2**         | **60.3**
+API/Model         | DocVQA-test | ChartQA-test | InfoVQA-test | TextVQA-val | OCRBench 
+----------------- | ----------- | ------------ | ------------ | ----------- | -------- 
+GPT-4o API        | 92.8        | 85.7         | 79.2       | 77.4       | 73.6    
+Gemini-1.5-Pro API| 93.1        | 87.2         | 80.1       | 78.7       | 75.4    
+MiniCPM-V-2-2B    | 71.9        | -            |       -      | 74.1       | 60.5    
+SmolVLM-Instruct-2B| 81.6       | -            |       -      | 72.7       | -        
+Aquila-VL-2B      | 85.0        | 76.5         | 58.3         | 76.4       | 77.2   
+Mini-Monkey-2B    | 87.4        | 76.5         | 60.1         | 76.0       | 79.4  
+InternVL2-2B      | 86.9        | 76.2         | 58.9         | 73.4       | 78.1  
+InternVL2.5-2B    | 88.7        | **79.2**     | 60.9        | 74.3        | 80.4     
+Qwen2-VL-2B       | 90.1        | 73.5        | 65.5        | 79.7        | 79.4    
+**PPDocBee-2B**   | **90.5**    | 74.6        | **66.2**    | **81.2**  | **82.8**(**83.5**)
 
+> ⚠️注意：
+> 1. OCRBench指标归一化到100分制，PPDocBee-2B的OCRBench指标中，82.8是端到端评估的分数，83.5是OCR后处理辅助评估的分数。
 
-注意：
+### 5.2 内部业务中文场景评估集指标
 
-1.我们在评估DocVQA和InfoVQA时默认采用了val验证集上的指标，标(test)的是竞品模型公布的测试集上的指标。
+| API/模型 | 总分 | 印刷文字类 | 表格类 | 印章类 | 图表类 |
+|---------|-----:|---------:|------:|------:|------:|
+| GPT-4o API | 685 | 436 | 198 | 5 | 46 |
+| GLM-4V Flash API | 547 | 339 | 169 | 5 | 34 |
+| InternVL2.5-2B | 596 | 363 | 182 | 4 | **47** |
+| Qwen2-VL-2B | 680 | 476 | 167 | **8** | 29 |
+| **PPDocBee-2B** | **765** | **517** | **202** | 5 | 41 |
 
-2.[ChineseOCRBench](https://huggingface.co/datasets/SWHL/ChineseOCRBench)是3410张图像和3410条问答数据，均来自ReCTS和ESTVQA数据集。
+印刷文字类 (655张)、表格类 (358张)、印章类 (15张)、图表类 (176张)
 
-3.内部中文场景评估集包括了财报、法律法规、理工科论文、说明书、文科论文、合同、研报等场景，暂时未有计划公开。
-
-
-## 参考文献
-```BibTeX
-
-```
+> ⚠️注意：
+> 1. 内部业务中文场景评测于 2024.12.09日修订，所有图像分辨率 (1680, 1204)，共1196条数据。
+> 2. 内部业务中文场景评估集包括了财报、法律法规、理工科论文、说明书、文科论文、合同、研报等场景，暂时未有计划公开。
