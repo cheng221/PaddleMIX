@@ -16,7 +16,7 @@ import os
 
 DEFAULT = {
     "model": "PPDocBee-2B-1129",
-    "lang" : "zh",
+    "lang": "zh",
     "model_path": "PaddleMIX/PPDocBee-2B-1129",
 }
 
@@ -28,13 +28,13 @@ SUPPORTED_MODELS = {
 
 
 MODEL_MAPPING = {
-    "PPDocBee-2B-1129":"Qwen2VLForConditionalGeneration",
+    "PPDocBee-2B-1129": "Qwen2VLForConditionalGeneration",
     "Qwen2-VL-2B-Instruct": "Qwen2VLForConditionalGeneration",
     "Qwen2-VL-7B-Instruct": "Qwen2VLForConditionalGeneration",
 }
 
 DEFAULT_TEMPLATE = {
-    "default":"qwen2_vl",
+    "default": "qwen2_vl",
     "PPDocBee-2B-1129": "qwen2_vl",
     "Qwen2-VL-2B-Instruct": "qwen2_vl",
     "Qwen2-VL-7B-Instruct": "qwen2_vl",

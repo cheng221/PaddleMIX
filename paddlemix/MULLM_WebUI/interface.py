@@ -51,4 +51,4 @@ def run_web_ui() -> None:
     server_port = int(os.getenv("GRADIO_SERVER_PORT", "8260"))
     demo = create_ui()
     demo.queue()
-    demo.launch(share=gradio_share, server_name=server_name, inbrowser=True, server_port=server_port,max_threads=5)
+    demo.launch(share=gradio_share, server_name=server_name, inbrowser=True, server_port=server_port, max_threads=5)

@@ -58,7 +58,7 @@ class Runner:
         self.running = False
         self.dataset = None
 
-    def set_abort(self,data) -> None:
+    def set_abort(self, data) -> None:
         get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
         lang = get("top.lang")
 
@@ -66,8 +66,7 @@ class Runner:
             self.aborted = True
             yield ALERTS["info_aborting"][lang], gr.Slider(visible=False)
         else:
-            yield ALERTS["info_aborting_error"][lang],gr.Slider(visible=False)
-
+            yield ALERTS["info_aborting_error"][lang], gr.Slider(visible=False)
 
     def _initialize(self, data: Dict["Component", Any], do_train: bool, from_preview: bool) -> str:
         get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
@@ -233,7 +232,7 @@ class Runner:
         # get = lambda elem_id: data[self.manager.get_elem_by_id(elem_id)]
         self.running_data = data
         error = self._initialize(data, do_train=True, from_preview=True)
-        if error!="":
+        if error != "":
             # lang = get("top.lang")
             output_box = self.manager.get_elem_by_id("{}.output_box".format("train"))
             progress_bar = self.manager.get_elem_by_id("{}.progress_bar".format("train"))
@@ -241,7 +240,7 @@ class Runner:
                 output_box: error,
                 progress_bar: gr.Slider(visible=False),
             }
-            return  
+            return
         thread = Thread(target=self.run_train, args=(data,))
         thread.start()
         self.trainer = thread
@@ -284,7 +283,7 @@ class Runner:
                 resume_path = os.path.join(resume_root_path, ckpts[0])
 
         tokenizer.model_max_len = data_args.cutoff_len
-        image_processor = Qwen2VLImageProcessor(max_pixels=256 * 28 * 28)
+        image_processor = Qwen2VLImageProcessor()
         processor = Qwen2VLProcessor(image_processor, tokenizer)
         template = get_template_and_fix_tokenizer(tokenizer, data_args)
         self.dataset = get_dataset(
@@ -317,7 +316,7 @@ class Runner:
                 rslora=finetuning_args.use_rslora,
                 lora_plus_scale=finetuning_args.loraplus_lr_ratio,
                 pissa=finetuning_args.pissa_init,
-                tensor_parallel_degree=1,
+                tensor_parallel_degree=training_args.per_device_train_batch_size,
             )
             model = LoRAModel(model, lora_cfg)
             model.mark_only_lora_as_trainable()

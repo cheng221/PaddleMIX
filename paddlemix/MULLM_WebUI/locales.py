@@ -346,7 +346,7 @@ ALERTS = {
     },
     "info_aborting_error": {"en": "Aborted error during non-trainning phase", "zh": "非训练过程中，中断失败"},
     "info_aborting": {"en": "Aborted, wait for terminating...", "zh": "训练中断，正在等待进程结束……"},
-    "info_aborted": {"en": "Ready.", "zh": "准备就绪。"},
+    "info_aborted": {"en": "Aborted", "zh": "训练中断"},
     "info_finished": {"en": "Finished.", "zh": "训练完毕。"},
     "info_config_saved": {"en": "Arguments have been saved at: ", "zh": "训练参数已保存至："},
     "info_config_loaded": {"en": "Arguments have been restored.", "zh": "训练参数已载入。"},
