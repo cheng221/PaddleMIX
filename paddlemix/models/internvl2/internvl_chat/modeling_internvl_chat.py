@@ -42,6 +42,20 @@ __all__ = [
     "InternVLChatModel",
 ]
 
+def dense_connector_dci(image_features, image_forward_outs, is_siglip=True):
+    image_features_1 = []
+    image_features_2 = []
+    if is_siglip:
+        for i in range(0, 12):
+            image_features_1.append(image_forward_outs.hidden_states[i][:, 1:, :].astype(image_features.dtype))
+        image_features_1 = paddle.stack(image_features_1, axis=0)
+        image_features_1 = paddle.sum(image_features_1, axis=0) / 12
+        for i in range(12, 24):
+            image_features_2.append(image_forward_outs.hidden_states[i][:, 1:, :].astype(image_features.dtype))
+        image_features_2 = paddle.stack(image_features_2, axis=0)
+        image_features_2 = paddle.sum(image_features_2, axis=0) / 12
+    return paddle.concat([image_features_1, image_features_2], axis=-1)
+
 
 class InternVLChatModel(MixPretrainedModel):
     config_class = InternVLChatConfig
@@ -81,7 +95,9 @@ class InternVLChatModel(MixPretrainedModel):
             else:
                 raise NotImplementedError(f"{config.llm_config.architectures[0]} is not implemented.")
 
-        vit_hidden_size = config.vision_config.hidden_size
+        # vit_hidden_size = config.vision_config.hidden_size
+        self.use_dc = config.vision_config.get("use_dc", False)
+        vit_hidden_size = config.vision_config.hidden_size * 3 if config.vision_config.use_dc else config.vision_config.hidden_size 
         llm_hidden_size = config.llm_config.hidden_size
 
         self.mlp1 = nn.Sequential(
@@ -207,15 +223,22 @@ class InternVLChatModel(MixPretrainedModel):
 
     def extract_feature(self, pixel_values):
         if self.select_layer == -1:
-            vit_embeds = self.vision_model(
-                pixel_values=pixel_values, output_hidden_states=False, return_dict=True
-            ).last_hidden_state
-        else:
-            vit_embeds = self.vision_model(
+            image_forward_outs = self.vision_model(
                 pixel_values=pixel_values, output_hidden_states=True, return_dict=True
-            ).hidden_states[self.select_layer]
+            )
+            vit_embeds = image_forward_outs.last_hidden_state
+        else:
+            image_forward_outs = self.vision_model(
+                pixel_values=pixel_values, output_hidden_states=True, return_dict=True
+            )
+            vit_embeds = image_forward_outs.hidden_states[self.select_layer]
         vit_embeds = vit_embeds[:, 1:, :]
 
+        if self.use_dc:
+            vit_embeds_dc = dense_connector_dci(vit_embeds, image_forward_outs)
+            # [10, 1024, 2048]
+            vit_embeds = paddle.concat((vit_embeds, vit_embeds_dc), axis=-1)
+            # [10, 1024, 1024*3]
         h = w = int(vit_embeds.shape[1] ** 0.5)
         vit_embeds = vit_embeds.reshape([vit_embeds.shape[0], h, w, -1])
         vit_embeds = self.pixel_shuffle(vit_embeds, scale_factor=self.downsample_ratio)
@@ -280,6 +303,38 @@ class InternVLChatModel(MixPretrainedModel):
         responses = tokenizer.batch_decode(generation_output[0], skip_special_tokens=True)
         responses = [response.split(template.sep)[0].strip() for response in responses]
         return responses
+    def prepare_query(self,
+        tokenizer,
+        pixel_values,
+        question,
+        history=None,
+        num_patches_list=None,
+        IMG_START_TOKEN='<img>',
+        IMG_END_TOKEN='</img>',
+        IMG_CONTEXT_TOKEN='<IMG_CONTEXT>'):
+        if history is None and pixel_values is not None and '<image>' not in question:
+            question = '<image>\n' + question
+        if num_patches_list is None:
+            num_patches_list = [pixel_values.shape[0]] if pixel_values is not None else []
+        assert pixel_values is None or len(pixel_values) == sum(num_patches_list)
+
+        img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
+        self.img_context_token_id = img_context_token_id
+        template = get_conv_template(self.template)
+        template.system_message = self.system_message
+        # eos_token_id = tokenizer.convert_tokens_to_ids(template.sep.strip())
+
+        history = [] if history is None else history
+        for (old_question, old_answer) in history:
+            template.append_message(template.roles[0], old_question)
+            template.append_message(template.roles[1], old_answer)
+        template.append_message(template.roles[0], question)
+        template.append_message(template.roles[1], None)
+        query = template.get_prompt()
+        for num_patches in num_patches_list:
+            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.num_image_token * num_patches + IMG_END_TOKEN
+            query = query.replace('<image>', image_tokens, 1)
+        return query,template,history
 
     def chat(
         self,
@@ -295,35 +350,21 @@ class InternVLChatModel(MixPretrainedModel):
         IMG_CONTEXT_TOKEN="<IMG_CONTEXT>",
         verbose=False,
     ):
-        if history is None and pixel_values is not None and "<image>" not in question:
-            question = "<image>\n" + question
-
-        if num_patches_list is None:
-            num_patches_list = [pixel_values.shape[0]] if pixel_values is not None else []
-        assert pixel_values is None or len(pixel_values) == sum(num_patches_list)
-
-        img_context_token_id = tokenizer.convert_tokens_to_ids(IMG_CONTEXT_TOKEN)
-        self.img_context_token_id = img_context_token_id
-
-        template = get_conv_template(self.template)
-        template.system_message = self.system_message
-        eos_token_id = tokenizer.convert_tokens_to_ids(template.sep)
-
-        history = [] if history is None else history
-        for (old_question, old_answer) in history:
-            template.append_message(template.roles[0], old_question)
-            template.append_message(template.roles[1], old_answer)
-        template.append_message(template.roles[0], question)
-        template.append_message(template.roles[1], None)
-        query = template.get_prompt()
 
         if verbose and pixel_values is not None:
             image_bs = pixel_values.shape[0]
             logger.info(f"dynamic ViT batch size: {image_bs}")
-
-        for num_patches in num_patches_list:
-            image_tokens = IMG_START_TOKEN + IMG_CONTEXT_TOKEN * self.num_image_token * num_patches + IMG_END_TOKEN
-            query = query.replace("<image>", image_tokens, 1)
+        query,template,history = self.prepare_query(
+            tokenizer,
+            pixel_values,
+            question,
+            history,
+            num_patches_list,
+            IMG_START_TOKEN,
+            IMG_END_TOKEN,
+            IMG_CONTEXT_TOKEN,
+        )
+        eos_token_id = tokenizer.convert_tokens_to_ids(template.sep.strip())
 
         model_inputs = tokenizer(query, return_tensors="pd")
         input_ids = model_inputs["input_ids"]
@@ -384,7 +425,7 @@ class InternVLChatModel(MixPretrainedModel):
             input_embeds = self.language_model.get_input_embeddings()(input_ids)
 
         ###  must add position_ids, paddlenlp bug
-        if isinstance(self.language_model, Qwen2ForCausalLM):
+        if isinstance(self.language_model, (Qwen2ForCausalLM,LlamaForCausalLM)):
             batch_size, seq_length = attention_mask.shape
             position_ids = paddle.arange(seq_length).expand((batch_size, seq_length))
             outputs = self.language_model.generate(
