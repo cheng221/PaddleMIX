@@ -1,6 +1,3 @@
-from paddlenlp.generation import StoppingCriteria
-
-
 # Copyright (c) 2024 PaddlePaddle Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +12,7 @@ from paddlenlp.generation import StoppingCriteria
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """ Logits Processor Helper class for Emu3. """
-from typing import List, Optional, Union
+from typing import List, Union
 
 import paddle
 from paddlenlp.generation import StoppingCriteria

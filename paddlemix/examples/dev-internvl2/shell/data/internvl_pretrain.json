@@ -1,0 +1,9 @@
+{
+  "sharegpt4v_instruct_gpt4-vision_cap100k": {
+    "root": "raw_data/LLaVA-Pretrain/images",
+    "annotation": "raw_data/LLaVA-Pretrain/blip_laion_cc_sbu_558k.jsonl",
+    "data_augment": false,
+    "repeat_time": 1,
+    "length": 558128
+  }
+}

@@ -67,3 +67,46 @@ def get_env_device():
     elif paddle.is_compiled_with_xpu():
         return "xpu"
     return "cpu"
+
+
+def check_dtype_compatibility():
+    """
+    检查当前环境下可用的数据类型
+    返回最优的可用数据类型
+    """
+    if not paddle.is_compiled_with_cuda():
+        print("CUDA not available, falling back to float32")
+        return paddle.float32
+
+    # 获取GPU计算能力
+    gpu_arch = paddle.device.cuda.get_device_capability()
+    if gpu_arch is None:
+        print("Unable to determine GPU architecture, falling back to float32")
+        return paddle.float32
+
+    major, minor = gpu_arch
+    compute_capability = major + minor / 10
+    print(f"GPU compute capability: {compute_capability}")
+
+    try:
+        # 测试bfloat16兼容性
+        if compute_capability >= 8.0:  # Ampere及更新架构
+            test_tensor = paddle.zeros([2, 2], dtype="bfloat16")
+            paddle.matmul(test_tensor, test_tensor)
+            print("bfloat16 is supported and working")
+            return paddle.bfloat16
+    except Exception as e:
+        print(f"bfloat16 test failed: {str(e)}")
+
+    try:
+        # 测试float16兼容性
+        if compute_capability >= 5.3:  # Maxwell及更新架构
+            test_tensor = paddle.zeros([2, 2], dtype="float16")
+            paddle.matmul(test_tensor, test_tensor)
+            print("float16 is supported and working")
+            return paddle.float16
+    except Exception as e:
+        print(f"float16 test failed: {str(e)}")
+
+    print("Falling back to float32 due to compatibility issues")
+    return paddle.float32
