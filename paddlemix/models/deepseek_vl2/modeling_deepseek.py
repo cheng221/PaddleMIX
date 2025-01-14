@@ -897,9 +897,9 @@ class DeepseekV2DecoderLayer(paddle.nn.Layer):
         super().__init__()
         self.hidden_size = config.hidden_size
         if config.use_mla:
-            attn_implementation = "mla_" + config.get("_attn_implementation", "flash_attention_2")
+            attn_implementation = "mla_" + config.get("_attn_implementation", "flash_attention")
         else:
-            attn_implementation = "mha_" + config.get("_attn_implementation", "flash_attention_2")
+            attn_implementation = "mha_" + config.get("_attn_implementation", "flash_attention")
         if config.use_mla:
             self.self_attn = ATTENTION_CLASSES[attn_implementation](config=config, layer_idx=layer_idx)
         else:
