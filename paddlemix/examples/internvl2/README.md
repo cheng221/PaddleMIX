@@ -215,7 +215,7 @@ sh paddlemix/examples/internvl2/shell/internvl2.0/2nd_finetune/internvl2_8b_inte
 
 ```bash
 python paddlemix/examples/internvl2/chat_demo.py \
-    --model_name_or_path "/root/paddlejob/workspace/env_run/liaojincheng/code/models/InternVL2_5-8B-MPO" \
+    --model_name_or_path "your_checkpoint" \
     --image_path 'paddlemix/demo_images/examples_image1.jpg' \
     --text "Please describe this image in detail."
 ```
