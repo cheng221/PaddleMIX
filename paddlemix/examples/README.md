@@ -51,3 +51,93 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
 | [sam2](./sam2/)                                 | 224M                             | sam2              |
 | [showo](./showo/)                               | 1.3B                             | showo             |
 | [visualglm](./visualglm/)                       | 6B                               | visualglm         |
+
+
+<table align="center">
+  <tbody>
+    <tr align="center" valign="center">
+        <td>支持能力 </td>
+        <td>Model</td>
+        <td>Model Size</td>
+        <td>Template</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td rowspan="5"> 快速上手体验模型 </td>
+        <td> <a href="./YOLO-World/">YOLO-World </a></td>
+        <td> 640M/800M/1280M</td>
+        <td> yolo_world </td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>    
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td rowspan="8"> 一站式训推模型 </td>
+        <td> <a href="./YOLO-World/">YOLO-World </a></td>
+        <td> 640M/800M/1280M</td>
+        <td> yolo_world </td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>    
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+    <tr align="center" valign="center">
+        <td rowspan="7"> NPU训练模型 </td>
+        <td> <a href="./YOLO-World/">YOLO-World </a></td>
+        <td> 640M/800M/1280M</td>
+        <td> yolo_world </td>
+    </tr>
+    <tr align="center" valign="center">
+        <td> <a href="./aria/">aria </a></td>
+        <td>24.9B</td>
+        <td>aira</td>
+    </tr>
+</tbody>
+</table>
