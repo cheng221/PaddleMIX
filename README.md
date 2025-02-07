@@ -300,7 +300,7 @@ python setup.py install
             <li><a href="paddlemix/examples/internlm_xcomposer2">InternLM-XComposer2</a></li>
             <li><a href="paddlemix/examples/deepseek_vl2">DeepSeek-VL2</a></li> 
             <li><a href="paddlemix/examples/aria">Aria</a></li> 
-                 </ul>
+        </ul>
       </ul>
           <li><b>开放世界视觉模型</b></li>
         <ul>

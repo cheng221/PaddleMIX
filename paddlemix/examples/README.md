@@ -103,7 +103,7 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
         <td> GOT_OCR_2_0 </td>
     </tr>
     <tr align="center" valign="center">
-        <td> <a href="./sam2/">sam </a></td>
+        <td> <a href="./sam/">sam </a></td>
         <td> 86M/307M/632M </td>
         <td> sam </td>
     </tr>
@@ -143,7 +143,7 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
         <td>mPLUG_Owl3</td>
     </tr>
     <tr align="center" valign="center">
-        <td> <a href="./minicpm_v_2_6/">minicpm_v_2_6 </a></td>
+        <td> <a href="./minicpm-v-2_6">minicpm_v_2_6 </a></td>
         <td>8B </td>
         <td>minicpm_v_2_6</td>
     </tr>
@@ -213,7 +213,7 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
         <td>llava_onevision</td>
     </tr>
     <tr align="center" valign="center">
-        <td> <a href="./llava_next/">llava_next </a></td>
+        <td> <a href="./llava_next_interleave/">llava_next </a></td>
         <td> 0.5B/7B </td>
         <td>llava_next_interleave</td>
     </tr>
