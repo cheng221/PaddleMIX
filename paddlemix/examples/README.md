@@ -253,7 +253,7 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
         <td>clip</td>
     </tr>
     <tr align="center" valign="center">
-        <td rowspan="3"> NPU训练模型 </td>
+        <td rowspan="3"> NPU训推支持模型 </td>
         <td> <a href="./qwen2_vl/"> qwen2_vl </a></td>
         <td> 2B/7B/72B </td>
         <td> qwen2_vl </td>
