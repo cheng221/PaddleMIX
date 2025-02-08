@@ -124,7 +124,7 @@ paddlemix `examples` 目录下提供模型的一站式体验，包括模型推�
     </tr>
     <tr align="center" valign="center">
         <td> <a href="./janus/">janus </a></td>
-        <td> 1.3B </td>
+        <td> 1B/1.3B/7B </td>
         <td> janus </td>
     </tr>
     <tr align="center" valign="center">
