@@ -16,7 +16,7 @@ import os
 
 import paddle
 import paddlenlp
-
+import paddle.nn.functional as F
 """ PyTorch DeepSeek model and compatible with both DeepSeekV2 and DeepSeekV3"""
 import math
 import warnings
@@ -27,7 +27,11 @@ from paddlenlp.transformers import PretrainedModel
 from paddlenlp.transformers.activations import ACT2FN
 from paddlenlp.transformers.llama.modeling import LlamaAttention
 from paddlenlp.utils.tools import get_env_device
-
+from paddlemix.models.qwen2_vl.bert_padding import index_first_axis, pad_input, unpad_input
+from paddlemix.models.flash_attn_utils import (
+    create_attention_module,
+    has_flash_attn_func,
+)
 from ppdiffusers.utils import logging
 
 from .attn_mask import _prepare_4d_causal_attention_mask
@@ -45,6 +49,8 @@ try:
 except:
     flash_attention = None
 
+flash_attn_func, flash_attn_varlen_func = has_flash_attn_func()
+_IS_NPU = "npu" in paddle.get_device()
 
 class DeepseekV2RMSNorm(paddle.nn.Layer):
     def __init__(self, hidden_size, eps=1e-06):
@@ -213,6 +219,21 @@ def rotate_half(x):
     x1 = x[..., : tuple(x.shape)[-1] // 2]
     x2 = x[..., tuple(x.shape)[-1] // 2 :]
     return paddle.concat(x=(-x2, x1), axis=-1)
+
+def llama_apply_rotary_pos_emb(q, k, cos, sin, position_ids):
+
+    if position_ids is None:
+        # Note: Only for LlamaForCausalLMPipe model pretraining
+        cos = cos[:, : q.shape[1], :, :]  # [bs, seq_len, 1, dim]
+        sin = sin[:, : q.shape[1], :, :]  # [bs, seq_len, 1, dim]
+    else:
+        cos = cos.squeeze(axis=[0, 2])  # [seq_len, dim]
+        sin = sin.squeeze(axis=[0, 2])  # [seq_len, dim]
+        cos = cos[position_ids].unsqueeze(2)  # [bs, seq_len, 1, dim]
+        sin = sin[position_ids].unsqueeze(2)  # [bs, seq_len, 1, dim]
+    q_embed = (q * cos) + (rotate_half(q) * sin)
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
 
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
@@ -732,6 +753,230 @@ class DeepseekV2Attention(paddle.nn.Layer):
             attn_weights = None
         return attn_output, attn_weights, past_key_value
 
+class LlamaFlashAttention(LlamaAttention):
+    def __init__(self,config, layerwise_recompute: bool = False):
+        super().__init__(config,layerwise_recompute)
+        self.is_causal = True # TODO
+    def _get_unpad_data(self,attention_mask):
+        seqlens_in_batch = attention_mask.sum(axis=-1, dtype="int32")
+        indices = paddle.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen_in_batch = seqlens_in_batch.max().item()  # [2, 1, 1323]
+        cu_seqlens = F.pad(paddle.cumsum(seqlens_in_batch, axis=0), (1, 0), data_format="NCL")
+        return (
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+        )
+    def _unpad_input(self, query_layer, key_layer, value_layer, attention_mask, query_length):
+        # Note: This function was named _upad_input() in torch transformers/modeling_flash_attention_utils.py
+        indices_k, cu_seqlens_k, max_seqlen_in_batch_k = self._get_unpad_data(attention_mask)
+        batch_size, kv_seq_len, num_key_value_heads, head_dim = key_layer.shape
+
+        # TODO：cuda error
+        key_layer = index_first_axis(
+            key_layer.reshape([batch_size * kv_seq_len, num_key_value_heads, head_dim]), indices_k
+        )
+        value_layer = index_first_axis(
+            value_layer.reshape([batch_size * kv_seq_len, num_key_value_heads, head_dim]), indices_k
+        )
+
+        if query_length == kv_seq_len:
+            query_layer = index_first_axis(
+                query_layer.reshape([batch_size * kv_seq_len, self.num_heads, head_dim]), indices_k
+            )
+            cu_seqlens_q = cu_seqlens_k
+            max_seqlen_in_batch_q = max_seqlen_in_batch_k
+            indices_q = indices_k
+        elif query_length == 1:
+            max_seqlen_in_batch_q = 1
+            cu_seqlens_q = paddle.arange(
+                batch_size + 1, dtype=paddle.int32
+            )  # There is a memcpy here, that is very bad.
+            indices_q = cu_seqlens_q[:-1]
+            query_layer = query_layer.squeeze(1)
+        else:
+            # The -q_len: slice assumes left padding.
+            attention_mask = attention_mask[:, -query_length:]
+            query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q = unpad_input(query_layer, attention_mask)
+
+        return (
+            query_layer,
+            key_layer,
+            value_layer,
+            indices_q.to(paddle.int64),
+            (cu_seqlens_q, cu_seqlens_k),
+            (max_seqlen_in_batch_q, max_seqlen_in_batch_k),
+        )
+
+    def _flash_attention_forward(
+        self, query_states, key_states, value_states, attention_mask, query_length, dropout=0.0, softmax_scale=None
+    ):
+        """
+        Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
+        first unpad the input, then computes the attention scores and pad the final attention scores.
+
+        Args:
+            query_states (`paddle.Tensor`):
+                Input query states to be passed to Flash Attention API
+            key_states (`paddle.Tensor`):
+                Input key states to be passed to Flash Attention API
+            value_states (`paddle.Tensor`):
+                Input value states to be passed to Flash Attention API
+            attention_mask (`paddle.Tensor`):
+                The padding mask - corresponds to a tensor of size `(batch_size, seq_len)` where 0 stands for the
+                position of padding tokens and 1 for the position of non-padding tokens.
+            dropout (`int`, *optional*):
+                Attention dropout
+            softmax_scale (`float`, *optional*):
+                The scaling of QK^T before applying softmax. Default to 1 / sqrt(head_dim)
+        """
+        # Contains at least one padding token in the sequence
+        causal = self.is_causal and query_length != 1
+
+        if _IS_NPU:
+            if attention_mask is not None:
+                attn_output = paddle.nn.functional.flash_attention_npu(  # TODO: flash_attn_unpadded
+                    query_states,  # [5998, 16, 128]
+                    key_states,  # [5998, 8, 128]
+                    value_states,  # [5998, 8, 128]
+                    attn_mask=attention_mask,
+                    dropout=dropout,
+                    causal=causal,
+                    is_varlen=True,
+                )
+            else:
+                dtype = query_states.dtype
+                attn_output = paddle.nn.functional.flash_attention_npu(  # TODO: flash_attn_unpadded
+                    query_states.astype("bfloat16"),  # [5998, 16, 128]
+                    key_states.astype("bfloat16"),  # [5998, 8, 128]
+                    value_states.astype("bfloat16"),  # [5998, 8, 128]
+                    attn_mask=attention_mask,
+                    dropout=dropout,
+                    causal=causal,
+                )
+                attn_output = attn_output.astype(dtype)
+        else:
+            head_dim = query_states.shape[-1]
+            softmax_scale = head_dim**-0.5  # TODO: 需要手动加上
+
+            if attention_mask is not None:  # attention_mask.shape # [2, 1, 1323, 1323]
+                batch_size = query_states.shape[0]  # [2, 1323, 12, 128]
+                query_states, key_states, value_states, indices_q, cu_seq_lens, max_seq_lens = self._unpad_input(
+                    query_states, key_states, value_states, attention_mask, query_length
+                )
+                cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+                max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
+                attn_output_unpad = flash_attn_varlen_func(  # TODO: flash_attn_unpadded
+                    query_states,  # [5998, 16, 128]
+                    key_states,  # [5998, 8, 128]
+                    value_states,  # [5998, 8, 128]
+                    cu_seqlens_q=cu_seqlens_q,
+                    cu_seqlens_k=cu_seqlens_k,
+                    max_seqlen_q=max_seqlen_in_batch_q,
+                    max_seqlen_k=max_seqlen_in_batch_k,
+                    scale=softmax_scale,  # not softmax_scale=
+                    dropout=dropout,
+                    causal=causal,
+                )[0]
+
+                attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
+            else:
+                attn_output = flash_attn_func(
+                    query_states,
+                    key_states,
+                    value_states,
+                    dropout,
+                    causal=causal,  # no softmax_scale=
+                )[0]
+
+        # # 修改这里的维度转换，考虑并行策略下的维度
+        # batch_size = query_states.shape[0]
+        # hidden_size = self.num_heads * self.head_dim  # 计算实际的 hidden_size
+        # attn_output = attn_output.reshape([batch_size, query_length, hidden_size])
+
+        return attn_output
+
+    def forward(
+        self,
+        hidden_states,
+        position_ids: Optional[Tuple[paddle.Tensor]] = None,
+        past_key_value: Optional[Tuple[paddle.Tensor]] = None,
+        attention_mask: Optional[paddle.Tensor] = None,
+        output_attentions: bool = False,
+        use_cache: bool = False,
+        alibi: Optional[paddle.Tensor] = None,
+        attn_mask_startend_row_indices: Optional[paddle.Tensor] = None,
+        npu_is_casual: bool = False,
+    ) -> Tuple[paddle.Tensor, Optional[paddle.Tensor], Optional[Tuple[paddle.Tensor]]]:
+        bsz, q_len, _ = tuple(hidden_states.shape)
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+
+        target_query_shape = [0, 0, self.num_heads, self.head_dim]
+        target_key_value_shape = [0, 0, self.num_key_value_heads, self.head_dim]
+        
+        query_states = query_states.reshape(shape=target_query_shape)
+        key_states = key_states.reshape(shape=target_key_value_shape)
+        value_states = value_states.reshape(shape=target_key_value_shape)
+
+        kv_seq_len = key_states.shape[-3]
+        # import pdb;pdb.set_trace()
+        if past_key_value is not None:
+            kv_seq_len += past_key_value[0].shape[-3]
+
+        cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
+
+        query_states, key_states = llama_apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+
+        # [bs, seq_len, num_head, head_dim]
+        if past_key_value is not None:
+            # reuse k, v, self_attention
+            key_states = paddle.concat([past_key_value[0], key_states], axis=1)
+            value_states = paddle.concat([past_key_value[1], value_states], axis=1)
+            if self.config.immediate_clear_past_key_value:
+                past_key_value[0]._clear_data()
+                past_key_value[1]._clear_data()
+
+        past_key_value = (key_states, value_states) if use_cache else None
+        if self.kv_indices is not None:
+            key_states = paddle.index_select(key_states, self.kv_indices, axis=2)
+            value_states = paddle.index_select(value_states, self.kv_indices, axis=2)
+
+        attn_output = self._flash_attention_forward(
+            query_states,
+            key_states,
+            value_states,
+            None,# attention_mask  
+            q_len
+            # dropout=0.0 if not self.training else self.attention_dropout,
+            # causal=self.is_causal,
+        )
+        attn_output = attn_output.reshape([bsz, q_len, -1])
+
+        if output_attentions:
+            attn_weights = None
+        else:
+            attn_output = outputs
+
+        attn_output = self.o_proj(attn_output)
+
+        if not output_attentions:
+            attn_weights = None
+
+        outputs = (attn_output,)
+
+        if output_attentions:
+            outputs += (attn_weights,)
+
+        if use_cache:
+            outputs += (past_key_value,)
+
+        if type(outputs) is tuple and len(outputs) == 1:
+            outputs = outputs[0]
+
+        return outputs
 
 class DeepseekV2FlashAttention(DeepseekV2Attention):
     """
@@ -746,6 +991,56 @@ class DeepseekV2FlashAttention(DeepseekV2Attention):
         # self._flash_attn_uses_top_left_mask = (not transformers.utils.
         #     is_flash_attn_greater_or_equal_2_10())
 
+    def _get_unpad_data(self,attention_mask):
+        seqlens_in_batch = attention_mask.sum(axis=-1, dtype="int32")
+        indices = paddle.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+        max_seqlen_in_batch = seqlens_in_batch.max().item()  # [2, 1, 1323]
+        cu_seqlens = F.pad(paddle.cumsum(seqlens_in_batch, axis=0), (1, 0), data_format="NCL")
+        return (
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+        )
+    def _unpad_input(self, query_layer, key_layer, value_layer, attention_mask, query_length):
+        # Note: This function was named _upad_input() in torch transformers/modeling_flash_attention_utils.py
+        indices_k, cu_seqlens_k, max_seqlen_in_batch_k = self._get_unpad_data(attention_mask)
+        batch_size, kv_seq_len, num_key_value_heads, head_dim = key_layer.shape
+
+        # TODO：cuda error
+        key_layer = index_first_axis(
+            key_layer.reshape([batch_size * kv_seq_len, num_key_value_heads, head_dim]), indices_k
+        )
+        value_layer = index_first_axis(
+            value_layer.reshape([batch_size * kv_seq_len, num_key_value_heads, head_dim]), indices_k
+        )
+
+        if query_length == kv_seq_len:
+            query_layer = index_first_axis(
+                query_layer.reshape([batch_size * kv_seq_len, self.num_heads, head_dim]), indices_k
+            )
+            cu_seqlens_q = cu_seqlens_k
+            max_seqlen_in_batch_q = max_seqlen_in_batch_k
+            indices_q = indices_k
+        elif query_length == 1:
+            max_seqlen_in_batch_q = 1
+            cu_seqlens_q = paddle.arange(
+                batch_size + 1, dtype=paddle.int32
+            )  # There is a memcpy here, that is very bad.
+            indices_q = cu_seqlens_q[:-1]
+            query_layer = query_layer.squeeze(1)
+        else:
+            # The -q_len: slice assumes left padding.
+            attention_mask = attention_mask[:, -query_length:]
+            query_layer, indices_q, cu_seqlens_q, max_seqlen_in_batch_q = unpad_input(query_layer, attention_mask)
+
+        return (
+            query_layer,
+            key_layer,
+            value_layer,
+            indices_q.to(paddle.int64),
+            (cu_seqlens_q, cu_seqlens_k),
+            (max_seqlen_in_batch_q, max_seqlen_in_batch_k),
+        )
     def forward(
         self,
         hidden_states: paddle.Tensor,
@@ -828,20 +1123,19 @@ class DeepseekV2FlashAttention(DeepseekV2Attention):
             query_states = query_states.astype(target_dtype)
             key_states = key_states.astype(target_dtype)
             value_states = value_states.astype(target_dtype)
-        # import pdb;pdb.set_trace()
-        # attn_output = self._flash_attention_forward(query_states,key_states,value_states,attention_mask,q_len,dropout=dropout_rate,softmax_scale=self.softmax_scale)
+
         attn_output = self._flash_attention_forward(
             query_states,
             key_states,
             value_states,
-            attention_mask,
+            None,
             q_len,
-            dropout=dropout_rate,
-            softmax_scale=self.softmax_scale,
+            # dropout=dropout_rate,
+            # softmax_scale=self.softmax_scale,
         )  # output b l (head_dim*head)
 
         if self.q_head_dim != self.v_head_dim:
-            attn_output = attn_output[:, :, :, : self.v_head_dim]
+           attn_output = attn_output[:, :, :, : self.v_head_dim]
 
         attn_output = attn_output.reshape([bsz, q_len, self.num_heads * self.v_head_dim]).contiguous()
 
@@ -850,7 +1144,9 @@ class DeepseekV2FlashAttention(DeepseekV2Attention):
             attn_weights = None
         return attn_output, attn_weights, past_key_value
 
-    def _flash_attention_forward(self, query_states, key_states, value_states, attention_mask, dropout=0.0):
+    def _flash_attention_forward(
+        self, query_states, key_states, value_states, attention_mask, query_length, dropout=0.0, softmax_scale=None
+    ):
         """
         Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
         first unpad the input, then computes the attention scores and pad the final attention scores.
@@ -868,29 +1164,75 @@ class DeepseekV2FlashAttention(DeepseekV2Attention):
             dropout (`int`, *optional*):
                 Attention dropout
         """
-        # if not self._flash_attn_uses_top_left_mask:
-        #     causal = self.is_causal
-        # else:
-        #     causal = self.is_causal and query_length != 1
-        return paddle.nn.functional.scaled_dot_product_attention(
-            query_states,
-            key_states,
-            value_states,
-            attn_mask=attention_mask,
-            dropout_p=dropout,
-            training=self.training,
-        )
+        causal = self.is_causal and query_length != 1
 
+        if _IS_NPU:
+            if attention_mask is not None:
+                attn_output = paddle.nn.functional.flash_attention_npu(  # TODO: flash_attn_unpadded
+                    query_states,  # [5998, 16, 128]
+                    key_states,  # [5998, 8, 128]
+                    value_states,  # [5998, 8, 128]
+                    attn_mask=attention_mask,
+                    dropout=dropout,
+                    causal=causal,
+                    is_varlen=True,
+                )
+            else:
+                dtype = query_states.dtype
+                attn_output = paddle.nn.functional.flash_attention_npu(  # TODO: flash_attn_unpadded
+                    query_states.astype("bfloat16"),  # [5998, 16, 128]
+                    key_states.astype("bfloat16"),  # [5998, 8, 128]
+                    value_states.astype("bfloat16"),  # [5998, 8, 128]
+                    attn_mask=attention_mask,
+                    dropout=dropout,
+                    causal=causal,
+                )
+                attn_output = attn_output.astype(dtype)
+        else:
+            head_dim = query_states.shape[-1]
+            softmax_scale = head_dim**-0.5  # TODO: 需要手动加上
+
+            if attention_mask is not None:  # attention_mask.shape # [2, 1, 1323, 1323]
+                batch_size = query_states.shape[0]  # [2, 1323, 12, 128]
+                query_states, key_states, value_states, indices_q, cu_seq_lens, max_seq_lens = self._unpad_input(
+                    query_states, key_states, value_states, attention_mask, query_length
+                )
+                cu_seqlens_q, cu_seqlens_k = cu_seq_lens
+                max_seqlen_in_batch_q, max_seqlen_in_batch_k = max_seq_lens
+
+                attn_output_unpad = flash_attn_varlen_func(  # TODO: flash_attn_unpadded
+                    query_states,  # [5998, 16, 128]
+                    key_states,  # [5998, 8, 128]
+                    value_states,  # [5998, 8, 128]
+                    cu_seqlens_q=cu_seqlens_q,
+                    cu_seqlens_k=cu_seqlens_k,
+                    max_seqlen_q=max_seqlen_in_batch_q,
+                    max_seqlen_k=max_seqlen_in_batch_k,
+                    scale=softmax_scale,  # not softmax_scale=
+                    dropout=dropout,
+                    causal=causal,
+                )[0]
+
+                attn_output = pad_input(attn_output_unpad, indices_q, batch_size, query_length)
+            else:
+                attn_output = flash_attn_func(
+                    query_states,
+                    key_states,
+                    value_states,
+                    dropout,
+                    causal=causal,  # no softmax_scale=
+                )[0]
+
+        return attn_output
 
 ATTENTION_CLASSES = {
     "eager": DeepseekV2Attention,
     "flash_attention": DeepseekV2FlashAttention,
     "mla_eager": DeepseekV2Attention,
     "mla_flash_attention": DeepseekV2FlashAttention,
-    "mha_eager": LlamaAttention,
-    "mha_flash_attention": LlamaAttention,
+    "mha_eager": LlamaFlashAttention,
+    "mha_flash_attention": LlamaFlashAttention,
 }
-
 
 class DeepseekV2DecoderLayer(paddle.nn.Layer):
     def __init__(self, config: DeepseekV2Config, layer_idx: int):
